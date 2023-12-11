@@ -30,7 +30,7 @@ The primary purpose of this script is to streamline the process of creating READ
      ```
 
 5. **Review Output:**
-   - The script processes code files (`.c`, `.h`, `.cpp`, `.hpp`, `Makefile`) and extracts relevant information.
+   - The script processes code files (`.c`, `.h`, `.cpp`, `.hpp`, `Makefile`) in the current directory, its subdirectories and extracts relevant information.
    - If `en.subject.pdf` is present in the current directory, it is also processed.
    - The output is stored in a file named `summary.txt`.
 
