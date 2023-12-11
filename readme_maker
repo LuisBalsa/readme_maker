@@ -1,0 +1,207 @@
+#!/bin/bash
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+# Variables
+outfile="summary.txt"
+regex_func="^([a-zA-Z0-9_]+)\s+([a-zA-Z0-9_]*\*?[a-zA-Z0-9_]+)\s*\((.*)\)\s*"
+file_extensions=(".h" ".c" ".hpp" ".cpp" "Makefile")
+files=""
+
+clear_and_print() {
+    clear
+    echo -e "${GREEN}"
+    echo '    ____                 __                  __  ___      __            '
+    echo '   / __ \___  ____ _____/ /___ ___  ___     /  |/  /___ _/ /_____  _____'
+    echo '  / /_/ / _ \/ __ `/ __  / __ `__ \/ _ \   / /|_/ / __ `/ //_/ _ \/ ___/'
+    echo ' / _, _/  __/ /_/ / /_/ / / / / / /  __/  / /  / / /_/ / ,< /  __/ /    '
+    echo '/_/ |_|\___/\__,_/\__,_/_/ /_/ /_/\___/  /_/  /_/\__,_/_/|_|\___/_/     '
+    echo '                                                                        '
+    echo -e "${NC}"
+}
+
+clear_and_print
+
+# Check if the output file already exists and ask if it should be removed
+if [ -e "$outfile" ]; then
+    echo -en "${RED}WARNING: The file $outfile already exists. Do you want to remove it? (y/n) ${NC}"
+    while true; do
+        read yn
+        yn=$(echo $yn | tr '[:lower:]' '[:upper:]')
+        case $yn in
+        Y)
+            rm "$outfile"
+            echo -e "\n${RED}WARNING: The file $outfile has been removed.${NC}\n"
+            sleep 1
+            clear_and_print
+            break
+            ;;
+        N)
+            echo -e "\n${RED}WARNING: The file $outfile was not removed. The process has been canceled.${NC}\n"
+            sleep 3
+            clear
+            exit
+            ;;
+        *)
+            echo -en "\n${RED}WARNING: Type 'y' to remove the file $outfile or 'n' to cancel the process. ${NC}"
+            ;;
+        esac
+    done
+fi
+
+# Check if tmp.txt already exists and ask if it should be removed
+if [ -e "tmp.txt" ]; then
+    echo -en "${RED}WARNING: The file tmp.txt already exists. Do you want to remove it? (y/n) ${NC}"
+    while true; do
+        read yn
+        yn=$(echo $yn | tr '[:lower:]' '[:upper:]')
+        case $yn in
+        Y)
+            rm "tmp.txt"
+            echo -e "\n${RED}WARNING: The file tmp.txt has been removed.${NC}\n"
+            sleep 1
+            clear_and_print
+            break
+            ;;
+        N)
+            echo -e "\n${RED}WARNING: The file tmp.txt was not removed. The process has been canceled.${NC}\n"
+            sleep 3
+            clear
+            exit
+            ;;
+        *)
+            echo -en "\n${RED}WARNING: Type 'y' to remove the file tmp.txt or 'n' to cancel the process. ${NC}"
+            ;;
+        esac
+    done
+fi
+
+# Function to wait for confirmation
+wait_for_confirmation() {
+    echo -e "\nText copied to the clipboard. Paste it in ChatGPT to get a summary and copy the response."
+    read -p "Press Enter after copying the ChatGPT response. (No need to paste it here) " -n 1 -r
+}
+
+# Function to process tmp.txt and append to $outfile
+process_c_file() {
+    # Extract all functions from the output file
+    all_func=$(grep -E "$regex_func" tmp.txt)
+    echo "Resume these files of code in few words. Just resume, don't write anything else, so I can copy and paste it." >> tmp.txt
+    echo "$files" >> "$outfile"
+    files=""
+    echo "$all_func" >> "$outfile"
+    cat tmp.txt | xclip -selection clipboard
+    wait_for_confirmation
+    summary=$(xclip -o -selection clipboard)
+    echo -e "${summary}" >> "$outfile"
+    rm tmp.txt
+}
+
+# Function to process a PDF file and append to the summary
+process_file() {
+    pdftotext "$1" - | sed -e '$a\' -e 'Explain the subject in a few words, mentioning what is requested in all exercises, usually starting at 00.' | xclip -selection clipboard
+    wait_for_confirmation
+    summary=$(xclip -o -selection clipboard)
+    echo -e "${1}:${summary}" > tmp.txt
+    cat "$outfile" >> tmp.txt
+    mv tmp.txt "$outfile"
+}
+
+# List of folders to be ignored (provided as arguments)
+ignore_folders=("$@")
+
+# Check if folders to ignore were provided as arguments
+if [ "$#" -gt 0 ]; then
+    echo -e "\nIgnore folders: ${ignore_folders[@]}"
+else
+    echo -e "\n${RED}WARNING: No folders were provided as arguments. All folders will be processed."
+    echo -e "\n${GREEN}SUGGESTION: Provide folder names to ignore as arguments ./readme_maker <folder_name_1> <folder_name_2> ...${NC}\n"
+    sleep 1
+fi
+
+# Loop through .c, .h, .cpp, .hpp, and Makefile files in subfolders
+nbr_files=0
+echo -e "\n\n${GREEN}Processed files: ${NC}\n"
+for extension in "${file_extensions[@]}"; do
+    for file in $(find . -name "*$extension" | sort); do
+        # Check if the current folder should be ignored
+        ignore=false
+        for ignore_folder in "${ignore_folders[@]}"; do
+            if [[ "$file" == *"$ignore_folder"* ]]; then
+                ignore=true
+                break
+            fi
+        done
+        [ "$ignore" = true ] && continue
+        nbr_files=$((nbr_files + 1))
+        echo "${file}"
+        echo -e "${file}:" >> tmp.txt && files="${files} and ${file}"
+        cat "$file" >> tmp.txt
+        [ "$nbr_files" -eq 10 ] && nbr_files=0 && process_c_file
+    done
+done
+
+# Process the tmp.txt file
+[ -e "tmp.txt" ] && [ -e "$outfile" ] && process_c_file
+[ -e "tmp.txt" ] && [ ! -e "$outfile" ] && mv tmp.txt "$outfile"
+
+# Clean the output file
+sed -i '/^\/\//d' "$outfile" # remove lines starting with comments
+sed -i '/\/\*.*\*\//d' "$outfile" # remove comment blocks
+sed -i '/^#/d' "$outfile" # remove lines starting with comments (makefile)
+sed -i '/^$/d' "$outfile" # remove empty lines
+sed -i '/^# define/d' "$outfile" # remove lines with # define
+sed -i '/^#define/d' "$outfile" # remove lines with #define
+sed -i '/^# include/d' "$outfile" # remove lines with # include
+sed -i '/^#include/d' "$outfile" # remove lines with #include
+sed -i '/^#endif/d' "$outfile" # remove lines with #endif
+sed -i '/^#ifndef/d' "$outfile" # remove lines with #ifndef
+
+# Extract all functions from the output file and remove duplicates
+all_func=$(grep -E "$regex_func" "$outfile")
+all_func=$(echo "$all_func" | sort | sed 's/;$//' | uniq)
+
+# Check if the "en.subject.pdf" file exists in the current folder and process it
+if [ -e "en.subject.pdf" ]; then
+    # Process the subject.pdf
+    process_file "en.subject.pdf"
+else
+    echo -e "\nThe 'en.subject.pdf' file was not found in the current folder. Execution continues without processing this file.\n"
+fi
+
+# Append functions to the output file and requests to create the README
+echo -e "\n\n\nThis was the summary of the subject and my resolution for a programming project at Code 42 school. Please create a README for this project on GitHub. Explain in DETAIL the subject and my code." >> "$outfile"
+echo "These are the functions I created for this project." >> "$outfile"
+echo "$all_func" >> "$outfile"
+echo -e "\nExplain everything in DETAIL, the subject, building, running, testing, and explain each function in the order they are called in the code." >> "$outfile"
+
+# Copy the contents of the output file to the clipboard
+cat "$outfile" | xclip -selection clipboard
+
+# Echo the number of characters and lines in the output file
+echo -e "\nNumber of characters in $outfile: $(wc -m "$outfile" | awk '{print $1}')"
+echo "Number of lines in $outfile: $(wc -l "$outfile" | awk '{print $1}')"
+
+echo -e "\n${RED}Process completed. $outfile has been copied to the clipboard. Paste it in ChatGPT to get README.${NC}\n"
+sleep 3
+
+# Ask if the output file should be removed
+echo -en "${GREEN}Contents of $outfile are in the clipboard. Do you want to remove the file $outfile? (y/n) ${NC}"
+read yn
+yn=$(echo $yn | tr '[:lower:]' '[:upper:]')
+sleep 1
+clear
+case $yn in
+    Y)
+        rm "$outfile"
+        echo -e "\n${RED}WARNING: The file $outfile has been removed. The process has been completed.${NC}"
+        ;;
+    *)
+        echo -e "\n${RED}WARNING: The file $outfile was not removed. The process has been completed.${NC}"
+        ;;
+esac
+
+echo -e "Contents of $outfile are in the clipboard. Paste it in ChatGPT to get README.\n"
